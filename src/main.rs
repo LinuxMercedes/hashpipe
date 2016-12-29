@@ -59,6 +59,8 @@ fn main() {
          (author: crate_authors!())
          (about: "Hashpipe: Pipes data to and from an IRC connection")
          (@arg server: -s --server +required +takes_value "IRC server to connect to")
+         (@arg port: -p --port +takes_value "Port to use")
+         (@arg ssl: -e --ssl "Enable SSL encryption")
          (@arg nick: -n --nick +takes_value "Nickname to use")
          (@arg channels: -c --channels +takes_value "Channel(s) to speak in")
          // NOTE: long() is a required workaround for parsing long options with
@@ -74,6 +76,9 @@ fn main() {
 
     let nick = matches.value_of("nick").unwrap_or("hashpipe").to_string();
     let server = matches.value_of("server").unwrap().to_string();
+    let ssl = matches.is_present("ssl");
+    let port = matches.value_of("port").and_then(|p| p.parse().ok());
+
     let channels: Vec<String> = match matches.value_of("channels") {
         Some(chans) => chans.split(",").map(|x| x.to_string()).collect(),
         None => {
@@ -101,6 +106,8 @@ fn main() {
     let cfg = Config {
         nickname: Some(nick),
         server: Some(server),
+        port: port,
+        use_ssl: Some(ssl),
         channels: Some(channels.clone()),
         ..Default::default()
     };
