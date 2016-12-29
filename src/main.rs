@@ -62,13 +62,13 @@ fn main() {
          (@arg port: -p --port +takes_value "Port to use (default: 6667, or 6697 with SSL)")
          (@arg ssl: -e --ssl "Enable SSL encryption")
          (@arg nick: -n --nick +takes_value "Nickname to use (default: hashpipe)")
-         (@arg channels: -c --channels +takes_value "Channel(s) to speak in (defalt: #hashpipe)")
+         (@arg channels: -c --channels +takes_value "Channel(s) to speak in (defalt: #hashpipe, or nothing if using raw input)")
          // NOTE: long() is a required workaround for parsing long options with
          // hyphens; see https://github.com/kbknapp/clap-rs/issues/321
          (@arg raw_out: -o long("--raw-out") "Echo everything from the IRC server directly")
          (@arg raw_in: -i long("--raw-in") "Interpret STDIN as raw IRC commands")
          (@arg v: -v +multiple "Verbosity (1 for info, 2 for debug)")
-         (@arg quiet: -q "Only print errors (overrides -v; overridden by -o)")
+         (@arg quiet: -q "Only print errors (overrides -v; overridden by raw output)")
         )
         .get_matches();
 
