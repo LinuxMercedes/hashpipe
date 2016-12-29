@@ -29,8 +29,8 @@ fn main() {
 
     let matches = clap_app!
         (hashpipe =>
-         (version: "0.1")
-         (author: "LinuxMercedes <linuxmercedes@gmail.com>")
+         (version: crate_version!())
+         (author: crate_authors!())
          (about: "Hashpipe: Pipes data to and from an IRC connection")
          (@arg server: -s --server +required +takes_value "IRC server to connect to")
          (@arg nick: -n --nick +takes_value "Nickname to use")
