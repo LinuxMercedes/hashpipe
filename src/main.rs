@@ -17,6 +17,14 @@ use std::str::FromStr;
 use chan_signal::Signal;
 use std::thread::spawn;
 
+/*
+ * Actions that the IRC server can take
+ */
+enum Action {
+    Quit,
+    Join,
+}
+
 fn main() {
     // Catch signals we expect to exit cleanly from
     let signal = chan_signal::notify(&[Signal::INT, Signal::TERM, Signal::PIPE]);
@@ -27,19 +35,27 @@ fn main() {
                             (about: "Hashpipe: Pipes data to and from an IRC connection")
                             (@arg server: -s --server +required +takes_value "IRC server to connect to")
                             (@arg nick: -n --nick +takes_value "Nickname to use")
-                            (@arg channels: -c --channels +takes_value "Channel(s) to speak in (if not in raw mode)")
+                            (@arg channels: -c --channels +takes_value "Channel(s) to speak in")
                             // NOTE: long() is a required workaround for parsing long options with
                             // hyphens; see https://github.com/kbknapp/clap-rs/issues/321
                             (@arg raw_out: -o long("--raw-out") "Echo everything from the IRC server directly")
                             (@arg raw_in: -i long("--raw-in") "Interpret STDIN as raw IRC commands")
                            ).get_matches();
 
-    let nick = matches.value_of("nick").unwrap_or("hashpipe").to_string();
-    let server = matches.value_of("server").unwrap().to_string();
-    let channels :Vec<String> = matches.value_of("channels").unwrap_or("#hashpipe").split(",").map(|x| x.to_string()).collect();
-
     let raw_out = matches.is_present("raw_out");
     let raw_in = matches.is_present("raw_in");
+
+    let nick = matches.value_of("nick").unwrap_or("hashpipe").to_string();
+    let server = matches.value_of("server").unwrap().to_string();
+    let channels : Vec<String> =
+        match matches.value_of("channels") {
+            Some(chans) => {
+                chans.split(",").map(|x| x.to_string()).collect()
+            },
+            None => {
+                if raw_in { vec![] } else { vec!["#hashpipe".to_string()] }
+            }
+        };
 
     let cfg = Config {
         nickname: Some(nick),
@@ -64,8 +80,13 @@ fn main() {
                 server.send_quit("#|").unwrap();
                 return;
             },
-            rirc.recv() => {
-                join_count+=1;
+            rirc.recv() -> action => match action {
+                Some(Action::Join) => join_count += 1,
+                Some(Action::Quit) => {
+                    server.send_quit("#|").unwrap();
+                    return;
+                },
+                _ => ()
             },
         }
     }
@@ -78,16 +99,15 @@ fn main() {
 
     spawn (move || run_io(io_server, channels, raw_in, sio));
 
-    chan_select! {
-        signal.recv() -> _signal => {
-            /* Falls through to quit after this select block */
-        },
-        rio.recv() => {
-            /* Falls through to quit after this select block */
-        },
-        rirc.recv() => {
-            /* Falls through to quit after this select block */
-        },
+    loop {
+        chan_select! {
+            signal.recv() -> _signal => break,
+            rio.recv() => break,
+            rirc.recv() -> action => match action {
+                Some(Action::Quit) => break,
+                _ => (),
+            },
+        }
     }
 
     println!("Exiting!");
@@ -97,7 +117,7 @@ fn main() {
 /*
  * Manage IRC connection; read messages and signal on JOIN
  */
-fn run_irc(server: IrcServer, raw:bool, sjoin: chan::Sender<()>) {
+fn run_irc(server: IrcServer, raw:bool, sjoin: chan::Sender<Action>) {
     server.identify().unwrap();
     for message in server.iter() {
         let msg = message.unwrap();
@@ -105,15 +125,18 @@ fn run_irc(server: IrcServer, raw:bool, sjoin: chan::Sender<()>) {
             print!("{}",msg);
         }
         match msg.command {
-            Command::JOIN(ref _channel, ref _a, ref _b) => sjoin.send(()),
+            Command::JOIN(ref _channel, ref _a, ref _b) => sjoin.send(Action::Join),
             Command::PRIVMSG(ref target, ref what_was_said) => {
                 if !raw {
                     println!("{}{}: {}", msg.source_nickname().unwrap(), target, what_was_said)
                 }
             },
+            Command::QUIT(ref _quitmessage) => sjoin.send(Action::Quit),
             _ => (),
         }
     }
+
+    sjoin.send(Action::Quit)
 }
 
 /*
