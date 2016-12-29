@@ -216,7 +216,15 @@ fn run_irc(server: IrcServer, raw: bool, sjoin: chan::Sender<Action>) {
                                      target,
                                      what_was_said)
                         }
-                    }
+                    },
+                    Command::NOTICE(ref target, ref what_was_said) => {
+                        if !raw {
+                            println!("{}{}: {}",
+                                     msg.source_nickname().unwrap_or("* "),
+                                     target,
+                                     what_was_said)
+                        }
+                    },
                     Command::QUIT(ref _quitmessage) => sjoin.send(Action::Quit),
                     _ => (),
                 }
