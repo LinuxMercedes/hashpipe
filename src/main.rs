@@ -214,7 +214,7 @@ fn run_irc(server: IrcServer, raw: bool, quiet: bool, sjoin: chan::Sender<Action
                     Command::JOIN(ref _channel, ref _a, ref _b) => sjoin.send(Action::Join),
                     Command::PRIVMSG(ref target, ref what_was_said) => {
                         if !raw && !quiet {
-                            println!("{}{}: {}",
+                            println!("{}->{}: {}",
                                      msg.source_nickname().unwrap_or("* "),
                                      target,
                                      what_was_said)
@@ -222,7 +222,7 @@ fn run_irc(server: IrcServer, raw: bool, quiet: bool, sjoin: chan::Sender<Action
                     },
                     Command::NOTICE(ref target, ref what_was_said) => {
                         if !raw && !quiet {
-                            println!("{}{}: {}",
+                            println!("{}->{}: {}",
                                      msg.source_nickname().unwrap_or("* "),
                                      target,
                                      what_was_said)
