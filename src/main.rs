@@ -75,9 +75,9 @@ fn run_irc(server: IrcServer, sjoin: chan::Sender<()>) {
     server.identify().unwrap();
     for message in server.iter() {
         let msg = message.unwrap();
-        println!("{}", msg);
         match msg.command {
             Command::JOIN(ref _channel, ref _a, ref _b) => sjoin.send(()),
+            Command::PRIVMSG(ref target, ref what_was_said) => println!("{}{}: {}", msg.source_nickname().unwrap(), target, what_was_said),
             _ => (),
         }
     }
