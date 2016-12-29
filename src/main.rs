@@ -2,6 +2,9 @@
 extern crate chan;
 extern crate chan_signal;
 
+#[macro_use]
+extern crate clap;
+
 extern crate irc;
 
 use std::io::prelude::*;
@@ -17,10 +20,22 @@ fn main() {
     // Catch signals we expect to exit cleanly from
     let signal = chan_signal::notify(&[Signal::INT, Signal::TERM, Signal::PIPE]);
 
-    let channels = vec![format!("#hashpipe")];
+    let matches = clap_app!(hashpipe =>
+                            (version: "0.1")
+                            (author: "LinuxMercedes <linuxmercedes@gmail.com>")
+                            (about: "Hashpipe: Pipes data to and from an IRC connection")
+                            (@arg server: -s --server +required +takes_value "IRC server to connect to")
+                            (@arg nick: -n --nick +takes_value "Nickname to use")
+                            (@arg channels: -c --channels +takes_value "Channel(s) to speak in (if not in raw mode)")
+                           ).get_matches();
+
+    let nick = matches.value_of("nick").unwrap_or("hashpipe").to_string();
+    let server = matches.value_of("server").unwrap().to_string();
+    let channels :Vec<String> = matches.value_of("channels").unwrap_or("#hashpipe").split(",").map(|x| x.to_string()).collect();
+
     let cfg = Config {
-        nickname: Some(format!("hashpipe")),
-        server: Some(format!("irc.wobscale.website")),
+        nickname: Some(nick),
+        server: Some(server),
         channels: Some(channels.clone()),
         .. Default::default()
     };
