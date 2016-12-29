@@ -20,6 +20,9 @@ use irc::client::prelude::*;
 use std::default::Default;
 use std::str::FromStr;
 
+extern crate isatty;
+use isatty::stdout_isatty;
+
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::io::Error as IoError;
@@ -181,7 +184,9 @@ fn main() {
                     // TODO should this quit?
                     warn!("{}", err);
                 },
-                _ => break,
+                _ => if stdout_isatty() {
+                    break;
+                },
             },
             rirc.recv() -> action => match action {
                 Some(Action::Quit) => {
