@@ -62,7 +62,8 @@ fn main() {
          (@arg port: -p --port +takes_value "Port to use (default: 6667, or 6697 with SSL)")
          (@arg ssl: -e --ssl "Enable SSL encryption")
          (@arg nick: -n --nick +takes_value "Nickname to use (default: hashpipe)")
-         (@arg channels: -c --channels +takes_value "Channel(s) to speak in (defalt: #hashpipe, or nothing if using raw input)")
+         (@arg channels: -c --channels +takes_value "Channel(s) to speak in \
+          (defalt: #hashpipe, or nothing if using raw input)")
          // NOTE: long() is a required workaround for parsing long options with
          // hyphens; see https://github.com/kbknapp/clap-rs/issues/321
          (@arg raw_out: -o long("--raw-out") "Echo everything from the IRC server directly")
@@ -97,9 +98,9 @@ fn main() {
     let mut builder = LogBuilder::new();
     let level = match (matches.occurrences_of("v"), quiet) {
         (_, true) => LogLevelFilter::Error,
-        (0,_) => LogLevelFilter::Warn,
-        (1,_) => LogLevelFilter::Info,
-        (2,_) | _ => LogLevelFilter::Debug,
+        (0, _) => LogLevelFilter::Warn,
+        (1, _) => LogLevelFilter::Info,
+        (2, _) | _ => LogLevelFilter::Debug,
     };
     builder.filter(None, level);
     builder.init().unwrap();
@@ -219,7 +220,7 @@ fn run_irc(server: IrcServer, raw: bool, quiet: bool, sjoin: chan::Sender<Action
                                      target,
                                      what_was_said)
                         }
-                    },
+                    }
                     Command::NOTICE(ref target, ref what_was_said) => {
                         if !raw && !quiet {
                             println!("{}->{}: {}",
@@ -227,7 +228,7 @@ fn run_irc(server: IrcServer, raw: bool, quiet: bool, sjoin: chan::Sender<Action
                                      target,
                                      what_was_said)
                         }
-                    },
+                    }
                     Command::QUIT(ref _quitmessage) => sjoin.send(Action::Quit),
                     _ => (),
                 }
