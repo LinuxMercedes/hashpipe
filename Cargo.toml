@@ -7,3 +7,4 @@ authors = ["LinuxMercedes <LinuxMercedes@gmail.com>"]
 irc = "0.11.0"
 clap = "~2.19.0"
 chan = "~0.1.0"
+chan-signal = "~0.1.0"

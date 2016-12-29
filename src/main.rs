@@ -1,5 +1,7 @@
 #[macro_use]
 extern crate chan;
+extern crate chan_signal;
+
 extern crate irc;
 
 use std::io::prelude::*;
@@ -8,9 +10,13 @@ use std::io::BufReader;
 use std::default::Default;
 use irc::client::prelude::*;
 
+use chan_signal::Signal;
 use std::thread::spawn;
 
 fn main() {
+    // Catch signals we expect to exit cleanly from
+    let signal = chan_signal::notify(&[Signal::INT, Signal::TERM, Signal::PIPE]);
+
     let channels = vec![format!("#hashpipe")];
     let cfg = Config {
         nickname: Some(format!("hashpipe")),
@@ -31,11 +37,17 @@ fn main() {
     let mut join_count = 0;
     while join_count < channels.len() {
         chan_select! {
+            signal.recv() -> _signal => {
+                server.send_quit("#|").unwrap();
+                return;
+            },
             rirc.recv() => {
                 join_count+=1;
             },
         }
     }
+
+    println!("Joined {} channels", join_count);
 
     // Open stdin and write it to the desired channels
     let io_server = server.clone();
@@ -44,10 +56,16 @@ fn main() {
     spawn (move || run_io(io_server, channels, sio));
 
     chan_select! {
+        signal.recv() -> _signal => {
+            /* Falls through to quit after this select block */
+        },
         rio.recv() => {
-            println!("Exiting!");
+            /* Falls through to quit after this select block */
         },
     }
+
+    println!("Exiting!");
+    server.send_quit("#|").unwrap();
 }
 
 /*
@@ -76,6 +94,5 @@ fn run_io(server: IrcServer, channels: Vec<String>, _sdone: chan::Sender<()>) {
             server.send_privmsg(&channel, &ln).unwrap()
         }
     }
-    server.send_quit("#|").unwrap();
     // When this function ends, it drops _sdone, signaling main
 }
