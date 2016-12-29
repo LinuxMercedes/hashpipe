@@ -68,11 +68,13 @@ fn main() {
          (@arg raw_out: -o long("--raw-out") "Echo everything from the IRC server directly")
          (@arg raw_in: -i long("--raw-in") "Interpret STDIN as raw IRC commands")
          (@arg v: -v +multiple "Verbosity (1 for info, 2 for debug)")
+         (@arg quiet: -q "Only print errors (overrides -v; overridden by -o)")
         )
         .get_matches();
 
     let raw_out = matches.is_present("raw_out");
     let raw_in = matches.is_present("raw_in");
+    let quiet = matches.is_present("quiet");
 
     let nick = matches.value_of("nick").unwrap_or("hashpipe").to_string();
     let server = matches.value_of("server").unwrap().to_string();
@@ -93,10 +95,11 @@ fn main() {
 
     // Set up logger
     let mut builder = LogBuilder::new();
-    let level = match matches.occurrences_of("v") {
-        0 => LogLevelFilter::Warn,
-        1 => LogLevelFilter::Info,
-        2 | _ => LogLevelFilter::Debug,
+    let level = match (matches.occurrences_of("v"), quiet) {
+        (_, true) => LogLevelFilter::Error,
+        (0,_) => LogLevelFilter::Warn,
+        (1,_) => LogLevelFilter::Info,
+        (2,_) | _ => LogLevelFilter::Debug,
     };
     builder.filter(None, level);
     builder.init().unwrap();
@@ -125,7 +128,7 @@ fn main() {
     let (sirc, rirc) = chan::sync(0);
 
     debug!("Spawning IRC client...");
-    spawn(move || run_irc(irc_server, raw_out, sirc));
+    spawn(move || run_irc(irc_server, raw_out, quiet, sirc));
 
     // Wait until we've joined all the channels we need to
     let mut join_count = 0;
@@ -198,7 +201,7 @@ fn main() {
 }
 
 /// Manage IRC connection; read and print messages; signal on JOIN or QUIT
-fn run_irc(server: IrcServer, raw: bool, sjoin: chan::Sender<Action>) {
+fn run_irc(server: IrcServer, raw: bool, quiet: bool, sjoin: chan::Sender<Action>) {
     server.identify().unwrap_or_else(|err| sjoin.send(From::from(err)));
 
     for message in server.iter() {
@@ -210,7 +213,7 @@ fn run_irc(server: IrcServer, raw: bool, sjoin: chan::Sender<Action>) {
                 match msg.command {
                     Command::JOIN(ref _channel, ref _a, ref _b) => sjoin.send(Action::Join),
                     Command::PRIVMSG(ref target, ref what_was_said) => {
-                        if !raw {
+                        if !raw && !quiet {
                             println!("{}{}: {}",
                                      msg.source_nickname().unwrap_or("* "),
                                      target,
@@ -218,7 +221,7 @@ fn run_irc(server: IrcServer, raw: bool, sjoin: chan::Sender<Action>) {
                         }
                     },
                     Command::NOTICE(ref target, ref what_was_said) => {
-                        if !raw {
+                        if !raw && !quiet {
                             println!("{}{}: {}",
                                      msg.source_nickname().unwrap_or("* "),
                                      target,
