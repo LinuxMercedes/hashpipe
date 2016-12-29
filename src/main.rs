@@ -1,32 +1,58 @@
 #[macro_use]
 extern crate chan;
 extern crate chan_signal;
+use chan_signal::Signal;
+use std::thread::spawn;
 
 #[macro_use]
 extern crate clap;
 
+#[macro_use]
+extern crate log;
+extern crate env_logger;
+use log::LogLevelFilter;
+use env_logger::LogBuilder;
+
+use std::convert::From;
+
 extern crate irc;
-
-use std::io::prelude::*;
-use std::io::BufReader;
-
 use irc::client::prelude::*;
 use std::default::Default;
 use std::str::FromStr;
 
-use chan_signal::Signal;
-use std::thread::spawn;
+use std::io::prelude::*;
+use std::io::BufReader;
+use std::io::Error as IoError;
 
-/// Actions that the IRC server can take
+
+/// Actions that threads can take
+#[derive(Debug)]
 enum Action {
     Quit,
     Join,
+    IoError(IoError),
+    ParseError(&'static str),
 }
+
+impl From<IoError> for Action {
+    fn from(err: IoError) -> Action {
+        Action::IoError(err)
+    }
+}
+
+impl From<&'static str> for Action {
+    fn from(err: &'static str) -> Action {
+        Action::ParseError(err)
+    }
+}
+
 
 fn main() {
     // Catch signals we expect to exit cleanly from
     let signal = chan_signal::notify(&[Signal::INT, Signal::TERM, Signal::PIPE]);
 
+
+    // Parse args
     let matches = clap_app!
         (hashpipe =>
          (version: crate_version!())
@@ -39,6 +65,7 @@ fn main() {
          // hyphens; see https://github.com/kbknapp/clap-rs/issues/321
          (@arg raw_out: -o long("--raw-out") "Echo everything from the IRC server directly")
          (@arg raw_in: -i long("--raw-in") "Interpret STDIN as raw IRC commands")
+         (@arg v: -v +multiple "Verbosity")
         )
         .get_matches();
 
@@ -58,6 +85,19 @@ fn main() {
         }
     };
 
+
+    // Set up logger
+    let mut builder = LogBuilder::new();
+    let level = match matches.occurrences_of("v") {
+        0 => LogLevelFilter::Warn,
+        1 => LogLevelFilter::Info,
+        2 | _ => LogLevelFilter::Debug,
+    };
+    builder.filter(None, level);
+    builder.init().unwrap();
+
+
+    // Set up IRC server
     let cfg = Config {
         nickname: Some(nick),
         server: Some(server),
@@ -65,25 +105,39 @@ fn main() {
         ..Default::default()
     };
 
-    let server = IrcServer::from_config(cfg).unwrap();
+    let server = match IrcServer::from_config(cfg) {
+        Ok(val) => val,
+        Err(e) => {
+            error!("{}", e);
+            return;
+        }
+    };
 
     // Connect to IRC on its own thread
     let irc_server = server.clone();
     let (sirc, rirc) = chan::sync(0);
 
+    debug!("Spawning IRC client...");
     spawn(move || run_irc(irc_server, raw_out, sirc));
 
     // Wait until we've joined all the channels we need to
     let mut join_count = 0;
     while join_count < channels.len() {
         chan_select! {
-            signal.recv() -> _signal => {
+            signal.recv() -> signal => {
+                debug!("Received signal {:?}; quitting", signal);
                 server.send_quit("#|").unwrap();
                 return;
             },
             rirc.recv() -> action => match action {
                 Some(Action::Join) => join_count += 1,
                 Some(Action::Quit) => {
+                    debug!("QUIT received while attempting to join channels");
+                    server.send_quit("#|").unwrap();
+                    return;
+                },
+                Some(Action::IoError(err)) => {
+                    error!("{}", err);
                     server.send_quit("#|").unwrap();
                     return;
                 },
@@ -92,49 +146,75 @@ fn main() {
         }
     }
 
-    println!("Joined {} channels", join_count);
+    info!("Joined {} channels", join_count);
 
     // Open stdin and write it to the desired channels
     let io_server = server.clone();
     let (sio, rio) = chan::sync(0);
 
+    debug!("Spawning stdin reader...");
     spawn(move || run_io(io_server, channels, raw_in, sio));
 
     loop {
         chan_select! {
-            signal.recv() -> _signal => break,
-            rio.recv() => break,
+            signal.recv() -> signal => {
+                debug!("Received signal {:?}; quitting", signal);
+                break;
+            },
+            rio.recv() -> action => match action {
+                Some(Action::IoError(err)) => {
+                    error!("{}", err);
+                    break;
+                },
+                Some(Action::ParseError(err)) => {
+                    // TODO should this quit?
+                    warn!("{}", err);
+                },
+                _ => break,
+            },
             rirc.recv() -> action => match action {
-                Some(Action::Quit) => break,
+                Some(Action::Quit) => {
+                    debug!("Quit received");
+                    break;
+                },
+                Some(Action::IoError(err)) => {
+                    error!("{}", err);
+                    break;
+                },
                 _ => (),
             },
         }
     }
 
-    println!("Exiting!");
+    info!("Quitting!");
     server.send_quit("#|").unwrap();
 }
 
 /// Manage IRC connection; read messages and signal on JOIN
 fn run_irc(server: IrcServer, raw: bool, sjoin: chan::Sender<Action>) {
-    server.identify().unwrap();
+    server.identify().unwrap_or_else(|err| sjoin.send(From::from(err)));
+
     for message in server.iter() {
-        let msg = message.unwrap();
-        if raw {
-            print!("{}", msg);
-        }
-        match msg.command {
-            Command::JOIN(ref _channel, ref _a, ref _b) => sjoin.send(Action::Join),
-            Command::PRIVMSG(ref target, ref what_was_said) => {
-                if !raw {
-                    println!("{}{}: {}",
-                             msg.source_nickname().unwrap(),
-                             target,
-                             what_was_said)
+        match message {
+            Ok(msg) => {
+                if raw {
+                    print!("{}", msg);
+                }
+                match msg.command {
+                    Command::JOIN(ref _channel, ref _a, ref _b) => sjoin.send(Action::Join),
+                    Command::PRIVMSG(ref target, ref what_was_said) => {
+                        if !raw {
+                            println!("{}{}: {}",
+                                     msg.source_nickname().unwrap_or("* "),
+                                     target,
+                                     what_was_said)
+                        }
+                    }
+                    Command::QUIT(ref _quitmessage) => sjoin.send(Action::Quit),
+                    _ => (),
                 }
             }
-            Command::QUIT(ref _quitmessage) => sjoin.send(Action::Quit),
-            _ => (),
+            Err(err) => sjoin.send(From::from(err)),
         }
     }
 
@@ -142,19 +222,28 @@ fn run_irc(server: IrcServer, raw: bool, sjoin: chan::Sender<Action>) {
 }
 
 /// Read stdin and write each line to all channels
-fn run_io(server: IrcServer, channels: Vec<String>, raw: bool, _sdone: chan::Sender<()>) {
+fn run_io(server: IrcServer, channels: Vec<String>, raw: bool, sdone: chan::Sender<Action>) {
     let stdin = BufReader::new(std::io::stdin());
     for line in stdin.lines() {
-        let ln = line.unwrap();
-        if raw {
-            let raw_line = ln + "\r\n"; // IRC line terminator
-            let msg = Message::from_str(&raw_line).unwrap();
-            server.send(msg).unwrap();
-        } else {
-            for channel in &channels {
-                server.send_privmsg(&channel, &ln).unwrap()
+        match line {
+            Ok(ln) => {
+                if raw {
+                    let raw_line = ln + "\r\n"; // IRC line terminator
+                    match Message::from_str(&raw_line) {
+                        Ok(msg) => {
+                            server.send(msg).unwrap_or_else(|err| sdone.send(From::from(err)))
+                        }
+                        Err(err) => sdone.send(From::from(err)),
+                    }
+                } else {
+                    for channel in &channels {
+                        server.send_privmsg(&channel, &ln)
+                            .unwrap_or_else(|err| sdone.send(From::from(err)));
+                    }
+                }
             }
+            Err(err) => sdone.send(From::from(err)),
         }
     }
-    // When this function ends, it drops _sdone, signaling main
+    // When this function ends, it drops sdone, signaling main
 }
