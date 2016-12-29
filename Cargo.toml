@@ -1,0 +1,9 @@
+[package]
+name = "hashpipe"
+version = "0.1.0"
+authors = ["LinuxMercedes <LinuxMercedes@gmail.com>"]
+
+[dependencies]
+irc = "0.11.0"
+clap = "~2.19.0"
+chan = "~0.1.0"
