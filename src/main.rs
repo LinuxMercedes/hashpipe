@@ -197,7 +197,7 @@ fn main() {
     server.send_quit("#|").unwrap();
 }
 
-/// Manage IRC connection; read messages and signal on JOIN
+/// Manage IRC connection; read and print messages; signal on JOIN or QUIT
 fn run_irc(server: IrcServer, raw: bool, sjoin: chan::Sender<Action>) {
     server.identify().unwrap_or_else(|err| sjoin.send(From::from(err)));
 
@@ -228,7 +228,7 @@ fn run_irc(server: IrcServer, raw: bool, sjoin: chan::Sender<Action>) {
     sjoin.send(Action::Quit)
 }
 
-/// Read stdin and write each line to all channels
+/// Read stdin and write each line to channels/the server
 fn run_io(server: IrcServer, channels: Vec<String>, raw: bool, sdone: chan::Sender<Action>) {
     let stdin = BufReader::new(std::io::stdin());
     for line in stdin.lines() {
