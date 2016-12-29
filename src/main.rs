@@ -26,6 +26,7 @@ use isatty::stdout_isatty;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::io::Error as IoError;
+use std::io::stdout;
 
 
 /// Actions that threads can take
@@ -52,6 +53,7 @@ impl From<&'static str> for Action {
 
 fn main() {
     // Catch signals we expect to exit cleanly from
+    // I don't think rust actually sends SIGPIPE, but we'll catch it anyway
     let signal = chan_signal::notify(&[Signal::INT, Signal::TERM, Signal::PIPE]);
 
 
@@ -215,6 +217,7 @@ fn run_irc(server: IrcServer, raw: bool, quiet: bool, sjoin: chan::Sender<Action
             Ok(msg) => {
                 if raw {
                     print!("{}", msg);
+                    stdout().flush().unwrap_or_else(|err| sjoin.send(From::from(err)));
                 }
                 match msg.command {
                     Command::JOIN(ref _channel, ref _a, ref _b) => sjoin.send(Action::Join),
@@ -223,7 +226,8 @@ fn run_irc(server: IrcServer, raw: bool, quiet: bool, sjoin: chan::Sender<Action
                             println!("{}->{}: {}",
                                      msg.source_nickname().unwrap_or("* "),
                                      target,
-                                     what_was_said)
+                                     what_was_said);
+                            stdout().flush().unwrap_or_else(|err| sjoin.send(From::from(err)));
                         }
                     }
                     Command::NOTICE(ref target, ref what_was_said) => {
@@ -231,7 +235,8 @@ fn run_irc(server: IrcServer, raw: bool, quiet: bool, sjoin: chan::Sender<Action
                             println!("{}->{}: {}",
                                      msg.source_nickname().unwrap_or("* "),
                                      target,
-                                     what_was_said)
+                                     what_was_said);
+                            stdout().flush().unwrap_or_else(|err| sjoin.send(From::from(err)));
                         }
                     }
                     Command::QUIT(ref _quitmessage) => sjoin.send(Action::Quit),
