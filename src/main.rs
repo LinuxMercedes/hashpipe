@@ -27,11 +27,14 @@ fn main() {
                             (@arg server: -s --server +required +takes_value "IRC server to connect to")
                             (@arg nick: -n --nick +takes_value "Nickname to use")
                             (@arg channels: -c --channels +takes_value "Channel(s) to speak in (if not in raw mode)")
+                            (@arg raw_out: -o long("--raw-out") "Echo everything from the IRC server directly")
                            ).get_matches();
 
     let nick = matches.value_of("nick").unwrap_or("hashpipe").to_string();
     let server = matches.value_of("server").unwrap().to_string();
     let channels :Vec<String> = matches.value_of("channels").unwrap_or("#hashpipe").split(",").map(|x| x.to_string()).collect();
+
+    let raw_out = matches.is_present("raw_out");
 
     let cfg = Config {
         nickname: Some(nick),
@@ -46,7 +49,7 @@ fn main() {
     let irc_server = server.clone();
     let (sirc, rirc) = chan::sync(0);
 
-    spawn (move || run_irc(irc_server, sirc));
+    spawn (move || run_irc(irc_server, raw_out, sirc));
 
     // Wait until we've joined all the channels we need to
     let mut join_count = 0;
@@ -86,13 +89,20 @@ fn main() {
 /*
  * Manage IRC connection; read messages and signal on JOIN
  */
-fn run_irc(server: IrcServer, sjoin: chan::Sender<()>) {
+fn run_irc(server: IrcServer, raw:bool, sjoin: chan::Sender<()>) {
     server.identify().unwrap();
     for message in server.iter() {
         let msg = message.unwrap();
+        if raw {
+            print!("{}",msg);
+        }
         match msg.command {
             Command::JOIN(ref _channel, ref _a, ref _b) => sjoin.send(()),
-            Command::PRIVMSG(ref target, ref what_was_said) => println!("{}{}: {}", msg.source_nickname().unwrap(), target, what_was_said),
+            Command::PRIVMSG(ref target, ref what_was_said) => {
+                if !raw {
+                    println!("{}{}: {}", msg.source_nickname().unwrap(), target, what_was_said)
+                }
+            },
             _ => (),
         }
     }
