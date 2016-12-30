@@ -65,7 +65,7 @@ fn main() {
          (about: "#|: Pipes data to and from an IRC connection")
          (@arg server: -s --server +required +takes_value "IRC server to connect to")
          (@arg port: -p --port +takes_value "Port to use (default: 6667, or 6697 with SSL)")
-         (@arg ssl: -e --ssl "Enable SSL encryption")
+         (@arg no_ssl: -d long("--no-ssl") "Disable SSL encryption")
          (@arg nick: -n --nick +takes_value "Nickname to use (default: hashpipe)")
          (@arg channels: -c --channels +takes_value "Channel(s) to speak in \
           (defalt: #hashpipe, or nothing if using raw input)")
@@ -84,7 +84,7 @@ fn main() {
 
     let nick = matches.value_of("nick").unwrap_or("hashpipe").to_string();
     let server = matches.value_of("server").unwrap().to_string();
-    let ssl = matches.is_present("ssl");
+    let ssl = !matches.is_present("no_ssl");
     let port = matches.value_of("port").and_then(|p| p.parse().ok());
 
     let channels: Vec<String> = match matches.value_of("channels") {

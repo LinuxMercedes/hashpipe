@@ -66,11 +66,11 @@ USAGE:
 
 FLAGS:
     -h, --help       Prints help information
+    -d, --no-ssl     Disable SSL encryption
     -q               Only print errors (overrides -v; overridden by raw output)
     -i, --raw-in     Interpret STDIN as raw IRC commands
     -o, --raw-out    Echo everything from the IRC server directly
-    -e, --ssl        Enable SSL encryption
-    -v               Verbosity (-v for info, -vv for debug)
+    -v               Verbosity (1 for info, 2 for debug)
     -V, --version    Prints version information
 
 OPTIONS:
