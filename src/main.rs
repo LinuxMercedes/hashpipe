@@ -34,6 +34,7 @@ use std::io::stdout;
 enum Action {
     Quit,
     Join,
+    JoinFail(String),
     IoError(IoError),
     ParseError(&'static str),
 }
@@ -87,15 +88,20 @@ fn main() {
     let ssl = !matches.is_present("no_ssl");
     let port = matches.value_of("port").and_then(|p| p.parse().ok());
 
-    let channels: Vec<String> = match matches.value_of("channels") {
-        Some(chans) => chans.split(",").map(|x| x.to_string()).collect(),
-        None => {
-            if raw_in {
-                vec![]
-            } else {
-                vec!["#hashpipe".to_string()]
-            }
-        }
+    // Filter empty strings from channel names
+    let sanitized_chans: Vec<String> = matches.value_of("channels")
+        .map(|chans| {
+            chans.split(",")
+                .filter(|x| *x != "")
+                .map(|x| x.to_string())
+                .collect()
+        })
+        .unwrap_or(vec![]);
+
+    let channels: Vec<String> = if sanitized_chans.len() != 0 || raw_in {
+        sanitized_chans
+    } else {
+        vec!["#hashpipe".to_string()]
     };
 
 
@@ -138,7 +144,8 @@ fn main() {
 
     // Wait until we've joined all the channels we need to
     let mut join_count = 0;
-    while join_count < channels.len() {
+    let mut max_joins = channels.len();
+    while join_count < max_joins {
         chan_select! {
             signal.recv() -> signal => {
                 debug!("Received signal {:?}; quitting", signal);
@@ -151,6 +158,10 @@ fn main() {
                     debug!("QUIT received while attempting to join channels");
                     server.send_quit("#|").unwrap();
                     return;
+                },
+                Some(Action::JoinFail(err)) => {
+                    max_joins -= 1;
+                    warn!("{}", err);
                 },
                 Some(Action::IoError(err)) => {
                     error!("{}", err);
@@ -240,6 +251,21 @@ fn run_irc(server: IrcServer, raw: bool, quiet: bool, sjoin: chan::Sender<Action
                         }
                     }
                     Command::QUIT(ref _quitmessage) => sjoin.send(Action::Quit),
+                    Command::Response(ref response, ref command, ref err) => {
+                        // Handle un-joinable channels
+                        let the_problem = command.get(1).map_or("", |s| &*s);
+                        let errmsg = the_problem.to_string() + ": " +
+                                     &err.clone().unwrap_or("".to_string());
+
+                        match *response {
+                            Response::ERR_CHANNELISFULL => sjoin.send(Action::JoinFail(errmsg)),
+                            Response::ERR_INVITEONLYCHAN => sjoin.send(Action::JoinFail(errmsg)),
+                            Response::ERR_BANNEDFROMCHAN => sjoin.send(Action::JoinFail(errmsg)),
+                            Response::ERR_BADCHANNELKEY => sjoin.send(Action::JoinFail(errmsg)),
+                            Response::ERR_NOSUCHCHANNEL => sjoin.send(Action::JoinFail(errmsg)),
+                            _ => (),
+                        }
+                    }
                     _ => (),
                 }
             }
