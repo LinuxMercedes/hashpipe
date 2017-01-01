@@ -1,4 +1,5 @@
 # #|: Pipe data to and from IRC
+[![](http://meritbadge.herokuapp.com/hashpipe)](https://crates.io/crates/hashpipe)
 
 Hashpipe lets you connect stdin and stdout to IRC with Unix pipes. For example,
 
