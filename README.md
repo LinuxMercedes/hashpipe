@@ -37,6 +37,20 @@ if [[ $ret -eq 1 ]]; then
 fi
 ```
 
+Of course, the best application is sending channel spam^W^Wimportant messages to channels:
+
+```
+$ echo "srs bznz" | figlet -f slant | hashpipe -s irc.for.professionals -c "#important"
+```
+
+```
+<hashpipe>                       __
+<hashpipe>    _______________   / /_  ____  ____  ____
+<hashpipe>   / ___/ ___/ ___/  / __ \/_  / / __ \/_  /
+<hashpipe>  (__  ) /  (__  )  / /_/ / / /_/ / / / / /_
+<hashpipe> /____/_/  /____/  /_.___/ /___/_/ /_/ /___/
+```
+
 ## Raw mode
 Hashpipe can also parse stdin as raw IRC commands and/or output everything the server sends. This is primarily useful for sending direct PRIVMSGs or automating various oper tasks.
 
