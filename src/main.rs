@@ -32,6 +32,7 @@ use std::io::stdout;
 /// Actions that threads can take
 #[derive(Debug)]
 enum Action {
+    Connect,
     Quit,
     Join,
     JoinFail(String),
@@ -145,7 +146,8 @@ fn main() {
     // Wait until we've joined all the channels we need to
     let mut join_count = 0;
     let mut max_joins = channels.len();
-    while join_count < max_joins {
+    let mut connected = false;
+    while !connected || join_count < max_joins {
         chan_select! {
             signal.recv() -> signal => {
                 debug!("Received signal {:?}; quitting", signal);
@@ -153,6 +155,10 @@ fn main() {
                 return;
             },
             rirc.recv() -> action => match action {
+                Some(Action::Connect) => {
+                    connected = true;
+                    debug!("Connected!");
+                },
                 Some(Action::Join) => join_count += 1,
                 Some(Action::Quit) => {
                     debug!("QUIT received while attempting to join channels");
@@ -263,6 +269,9 @@ fn run_irc(server: IrcServer, raw: bool, quiet: bool, sjoin: chan::Sender<Action
                             Response::ERR_BANNEDFROMCHAN => sjoin.send(Action::JoinFail(errmsg)),
                             Response::ERR_BADCHANNELKEY => sjoin.send(Action::JoinFail(errmsg)),
                             Response::ERR_NOSUCHCHANNEL => sjoin.send(Action::JoinFail(errmsg)),
+
+                            Response::RPL_ENDOFMOTD => sjoin.send(Action::Connect),
+                            Response::ERR_NOMOTD => sjoin.send(Action::Connect),
                             _ => (),
                         }
                     }
