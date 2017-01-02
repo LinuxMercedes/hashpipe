@@ -35,6 +35,7 @@ enum Action {
     Connect,
     Quit,
     Join,
+    Continue,
     JoinFail(String),
     IoError(IoError),
     ParseError(&'static str),
@@ -195,6 +196,7 @@ fn main() {
                 break;
             },
             rio.recv() -> action => match action {
+                Some(Action::Continue) => (), // Stop stdin from blocking everything
                 Some(Action::IoError(err)) => {
                     error!("{}", err);
                     break;
@@ -305,6 +307,7 @@ fn run_io(server: IrcServer, channels: Vec<String>, raw: bool, sdone: chan::Send
                             .unwrap_or_else(|err| sdone.send(From::from(err)));
                     }
                 }
+                sdone.send(Action::Continue);
             }
             Err(err) => sdone.send(From::from(err)),
         }
