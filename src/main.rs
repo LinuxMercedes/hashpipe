@@ -17,6 +17,7 @@ use std::convert::From;
 
 extern crate irc;
 use irc::client::prelude::*;
+use irc::error::Error as IrcError;
 use std::default::Default;
 use std::str::FromStr;
 
@@ -38,6 +39,7 @@ enum Action {
     JoinFail(String),
     IoError(IoError),
     ParseError(&'static str),
+    IrcError(IrcError),
 }
 
 impl From<IoError> for Action {
@@ -49,6 +51,12 @@ impl From<IoError> for Action {
 impl From<&'static str> for Action {
     fn from(err: &'static str) -> Action {
         Action::ParseError(err)
+    }
+}
+
+impl From<IrcError> for Action {
+    fn from(err: IrcError) -> Action {
+        Action::IrcError(err)
     }
 }
 
@@ -174,6 +182,11 @@ fn main() {
                     server.send_quit("#|").unwrap();
                     return;
                 },
+                Some(Action::IrcError(err)) => {
+                    error!("{}", err);
+                    server.send_quit("#|").unwrap();
+                    return;
+                },
                 _ => ()
             },
         }
@@ -196,6 +209,7 @@ fn main() {
             },
             rio.recv() -> action => match action {
                 Some(Action::IoError(err)) => {
+                    debug!("Got an IoError from IO");
                     error!("{}", err);
                     break;
                 },
@@ -213,8 +227,15 @@ fn main() {
                     break;
                 },
                 Some(Action::IoError(err)) => {
+                    debug!("Got an IoError from IRC");
                     error!("{}", err);
                     break;
+                },
+                Some(Action::IrcError(err)) => {
+                    debug!("Got an IrcError from IRC");
+                    error!("{}", err);
+                    server.send_quit("#|").unwrap();
+                    return;
                 },
                 _ => (),
             },
@@ -229,58 +250,54 @@ fn main() {
 fn run_irc(server: IrcServer, raw: bool, quiet: bool, sjoin: chan::Sender<Action>) {
     server.identify().unwrap_or_else(|err| sjoin.send(From::from(err)));
 
-    for message in server.iter() {
-        match message {
-            Ok(msg) => {
-                if raw {
-                    print!("{}", msg);
-                    stdout().flush().unwrap_or_else(|err| sjoin.send(From::from(err)));
-                }
-                match msg.command {
-                    Command::JOIN(ref _channel, ref _a, ref _b) => sjoin.send(Action::Join),
-                    Command::PRIVMSG(ref target, ref what_was_said) => {
-                        if !raw && !quiet {
-                            println!("{}->{}: {}",
-                                     msg.source_nickname().unwrap_or("* "),
-                                     target,
-                                     what_was_said);
-                            stdout().flush().unwrap_or_else(|err| sjoin.send(From::from(err)));
-                        }
-                    }
-                    Command::NOTICE(ref target, ref what_was_said) => {
-                        if !raw && !quiet {
-                            println!("{}->{}: {}",
-                                     msg.source_nickname().unwrap_or("* "),
-                                     target,
-                                     what_was_said);
-                            stdout().flush().unwrap_or_else(|err| sjoin.send(From::from(err)));
-                        }
-                    }
-                    Command::QUIT(ref _quitmessage) => sjoin.send(Action::Quit),
-                    Command::Response(ref response, ref command, ref err) => {
-                        // Handle un-joinable channels
-                        let the_problem = command.get(1).map_or("", |s| &*s);
-                        let errmsg = the_problem.to_string() + ": " +
-                                     &err.clone().unwrap_or("".to_string());
-
-                        match *response {
-                            Response::ERR_CHANNELISFULL => sjoin.send(Action::JoinFail(errmsg)),
-                            Response::ERR_INVITEONLYCHAN => sjoin.send(Action::JoinFail(errmsg)),
-                            Response::ERR_BANNEDFROMCHAN => sjoin.send(Action::JoinFail(errmsg)),
-                            Response::ERR_BADCHANNELKEY => sjoin.send(Action::JoinFail(errmsg)),
-                            Response::ERR_NOSUCHCHANNEL => sjoin.send(Action::JoinFail(errmsg)),
-
-                            Response::RPL_ENDOFMOTD => sjoin.send(Action::Connect),
-                            Response::ERR_NOMOTD => sjoin.send(Action::Connect),
-                            _ => (),
-                        }
-                    }
-                    _ => (),
-                }
+    server.for_each_incoming(|msg| {
+            if raw {
+                print!("{}", msg);
+                stdout().flush().unwrap_or_else(|err| sjoin.send(From::from(err)));
             }
-            Err(err) => sjoin.send(From::from(err)),
-        }
-    }
+            match msg.command {
+                Command::JOIN(ref _channel, ref _a, ref _b) => sjoin.send(Action::Join),
+                Command::PRIVMSG(ref target, ref what_was_said) => {
+                    if !raw && !quiet {
+                        println!("{}->{}: {}",
+                                 msg.source_nickname().unwrap_or("* "),
+                                 target,
+                                 what_was_said);
+                        stdout().flush().unwrap_or_else(|err| sjoin.send(From::from(err)));
+                    }
+                }
+                Command::NOTICE(ref target, ref what_was_said) => {
+                    if !raw && !quiet {
+                        println!("{}->{}: {}",
+                                 msg.source_nickname().unwrap_or("* "),
+                                 target,
+                                 what_was_said);
+                        stdout().flush().unwrap_or_else(|err| sjoin.send(From::from(err)));
+                    }
+                }
+                Command::QUIT(ref _quitmessage) => sjoin.send(Action::Quit),
+                Command::Response(ref response, ref command, ref err) => {
+                    // Handle un-joinable channels
+                    let the_problem = command.get(1).map_or("", |s| &*s);
+                    let errmsg = the_problem.to_string() + ": " +
+                                 &err.clone().unwrap_or("".to_string());
+
+                    match *response {
+                        Response::ERR_CHANNELISFULL => sjoin.send(Action::JoinFail(errmsg)),
+                        Response::ERR_INVITEONLYCHAN => sjoin.send(Action::JoinFail(errmsg)),
+                        Response::ERR_BANNEDFROMCHAN => sjoin.send(Action::JoinFail(errmsg)),
+                        Response::ERR_BADCHANNELKEY => sjoin.send(Action::JoinFail(errmsg)),
+                        Response::ERR_NOSUCHCHANNEL => sjoin.send(Action::JoinFail(errmsg)),
+
+                        Response::RPL_ENDOFMOTD => sjoin.send(Action::Connect),
+                        Response::ERR_NOMOTD => sjoin.send(Action::Connect),
+                        _ => (),
+                    }
+                }
+                _ => (),
+            }
+        })
+        .unwrap();
 
     sjoin.send(Action::Quit)
 }

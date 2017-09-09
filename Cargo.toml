@@ -8,7 +8,7 @@ readme = "README.md"
 license = "GPLv3"
 
 [dependencies]
-irc = "0.11.0"
+irc = "~0.12.0"
 clap = "~2.21.0"
 chan = "~0.1.0"
 chan-signal = "~0.1.0"
