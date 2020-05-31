@@ -104,9 +104,9 @@ fn main() {
                 .map(|x| x.to_string())
                 .collect()
         })
-        .unwrap_or(vec![]);
+        .unwrap_or_default();
 
-    let channels: Vec<String> = if sanitized_chans.len() != 0 || raw_in {
+    let channels: Vec<String> = if !sanitized_chans.is_empty() || raw_in {
         sanitized_chans
     } else {
         vec!["#hashpipe".to_string()]
@@ -118,7 +118,7 @@ fn main() {
         (_, true) => LogLevelFilter::Error,
         (0, _) => LogLevelFilter::Warn,
         (1, _) => LogLevelFilter::Info,
-        (2, _) | _ => LogLevelFilter::Debug,
+        _ => LogLevelFilter::Debug,
     };
     builder.filter(None, level);
     builder.init().unwrap();
@@ -275,8 +275,7 @@ fn run_irc(client: IrcClient, raw: bool, quiet: bool, sjoin: chan::Sender<Action
             Command::Response(ref response, ref command, ref err) => {
                 // Handle un-joinable channels
                 let the_problem = command.get(1).map_or("", |s| &*s);
-                let errmsg =
-                    the_problem.to_string() + ": " + &err.clone().unwrap_or("".to_string());
+                let errmsg = the_problem.to_string() + ": " + &err.clone().unwrap_or_default();
 
                 match *response {
                     Response::ERR_CHANNELISFULL => sjoin.send(Action::JoinFail(errmsg)),
