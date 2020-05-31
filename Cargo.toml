@@ -1,6 +1,6 @@
 [package]
 name = "hashpipe"
-version = "0.1.2"
+version = "0.2.0"
 authors = ["LinuxMercedes <LinuxMercedes@gmail.com>"]
 description = "Unix pipes + IRC"
 repository = "https://github.com/LinuxMercedes/hashpipe"
@@ -8,8 +8,8 @@ readme = "README.md"
 license = "GPLv3"
 
 [dependencies]
-irc = "0.11.0"
-clap = "~2.21.0"
+irc = "0.13"
+clap = "2"
 chan = "~0.1.0"
 chan-signal = "~0.1.0"
 log = "0.3"

@@ -17,6 +17,7 @@ use std::convert::From;
 
 extern crate irc;
 use irc::client::prelude::*;
+use irc::error::IrcError;
 use std::default::Default;
 use std::str::FromStr;
 
@@ -37,7 +38,14 @@ enum Action {
     Join,
     JoinFail(String),
     IoError(IoError),
+    IrcError(IrcError),
     ParseError(&'static str),
+}
+
+impl From<IrcError> for Action {
+    fn from(err: IrcError) -> Action {
+        Action::IrcError(err)
+    }
 }
 
 impl From<IoError> for Action {
@@ -128,7 +136,7 @@ fn main() {
         ..Default::default()
     };
 
-    let server = match IrcServer::from_config(cfg) {
+    let server = match IrcClient::from_config(cfg) {
         Ok(val) => val,
         Err(e) => {
             error!("{}", e);
@@ -226,12 +234,12 @@ fn main() {
 }
 
 /// Manage IRC connection; read and print messages; signal on JOIN or QUIT
-fn run_irc(server: IrcServer, raw: bool, quiet: bool, sjoin: chan::Sender<Action>) {
+fn run_irc(server: IrcClient, raw: bool, quiet: bool, sjoin: chan::Sender<Action>) {
     server.identify().unwrap_or_else(|err| sjoin.send(From::from(err)));
 
-    for message in server.iter() {
+    let res = server.for_each_incoming(|message| {
         match message {
-            Ok(msg) => {
+            msg => {
                 if raw {
                     print!("{}", msg);
                     stdout().flush().unwrap_or_else(|err| sjoin.send(From::from(err)));
@@ -241,18 +249,18 @@ fn run_irc(server: IrcServer, raw: bool, quiet: bool, sjoin: chan::Sender<Action
                     Command::PRIVMSG(ref target, ref what_was_said) => {
                         if !raw && !quiet {
                             println!("{}->{}: {}",
-                                     msg.source_nickname().unwrap_or("* "),
-                                     target,
-                                     what_was_said);
+                                msg.source_nickname().unwrap_or("* "),
+                                target,
+                                what_was_said);
                             stdout().flush().unwrap_or_else(|err| sjoin.send(From::from(err)));
                         }
                     }
                     Command::NOTICE(ref target, ref what_was_said) => {
                         if !raw && !quiet {
                             println!("{}->{}: {}",
-                                     msg.source_nickname().unwrap_or("* "),
-                                     target,
-                                     what_was_said);
+                                msg.source_nickname().unwrap_or("* "),
+                                target,
+                                what_was_said);
                             stdout().flush().unwrap_or_else(|err| sjoin.send(From::from(err)));
                         }
                     }
@@ -261,7 +269,7 @@ fn run_irc(server: IrcServer, raw: bool, quiet: bool, sjoin: chan::Sender<Action
                         // Handle un-joinable channels
                         let the_problem = command.get(1).map_or("", |s| &*s);
                         let errmsg = the_problem.to_string() + ": " +
-                                     &err.clone().unwrap_or("".to_string());
+                            &err.clone().unwrap_or("".to_string());
 
                         match *response {
                             Response::ERR_CHANNELISFULL => sjoin.send(Action::JoinFail(errmsg)),
@@ -278,15 +286,17 @@ fn run_irc(server: IrcServer, raw: bool, quiet: bool, sjoin: chan::Sender<Action
                     _ => (),
                 }
             }
-            Err(err) => sjoin.send(From::from(err)),
         }
+    });
+    if let Err(err) = res {
+        sjoin.send(From::from(err));
     }
 
     sjoin.send(Action::Quit)
 }
 
 /// Read stdin and write each line to channels/the server
-fn run_io(server: IrcServer, channels: Vec<String>, raw: bool, sdone: chan::Sender<Action>) {
+fn run_io(server: IrcClient, channels: Vec<String>, raw: bool, sdone: chan::Sender<Action>) {
     let stdin = BufReader::new(std::io::stdin());
     for line in stdin.lines() {
         match line {
