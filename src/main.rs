@@ -237,55 +237,51 @@ fn main() {
 fn run_irc(server: IrcClient, raw: bool, quiet: bool, sjoin: chan::Sender<Action>) {
     server.identify().unwrap_or_else(|err| sjoin.send(From::from(err)));
 
-    let res = server.for_each_incoming(|message| {
-        match message {
-            msg => {
-                if raw {
-                    print!("{}", msg);
+    let res = server.for_each_incoming(|msg| {
+        if raw {
+            print!("{}", msg);
+            stdout().flush().unwrap_or_else(|err| sjoin.send(From::from(err)));
+        }
+        match msg.command {
+            Command::JOIN(ref _channel, ref _a, ref _b) => sjoin.send(Action::Join),
+            Command::PRIVMSG(ref target, ref what_was_said) => {
+                if !raw && !quiet {
+                    println!("{}->{}: {}",
+                                msg.source_nickname().unwrap_or("* "),
+                                target,
+                                what_was_said);
                     stdout().flush().unwrap_or_else(|err| sjoin.send(From::from(err)));
                 }
-                match msg.command {
-                    Command::JOIN(ref _channel, ref _a, ref _b) => sjoin.send(Action::Join),
-                    Command::PRIVMSG(ref target, ref what_was_said) => {
-                        if !raw && !quiet {
-                            println!("{}->{}: {}",
+            }
+            Command::NOTICE(ref target, ref what_was_said) => {
+                if !raw && !quiet {
+                    println!("{}->{}: {}",
                                 msg.source_nickname().unwrap_or("* "),
                                 target,
                                 what_was_said);
-                            stdout().flush().unwrap_or_else(|err| sjoin.send(From::from(err)));
-                        }
-                    }
-                    Command::NOTICE(ref target, ref what_was_said) => {
-                        if !raw && !quiet {
-                            println!("{}->{}: {}",
-                                msg.source_nickname().unwrap_or("* "),
-                                target,
-                                what_was_said);
-                            stdout().flush().unwrap_or_else(|err| sjoin.send(From::from(err)));
-                        }
-                    }
-                    Command::QUIT(ref _quitmessage) => sjoin.send(Action::Quit),
-                    Command::Response(ref response, ref command, ref err) => {
-                        // Handle un-joinable channels
-                        let the_problem = command.get(1).map_or("", |s| &*s);
-                        let errmsg = the_problem.to_string() + ": " +
-                            &err.clone().unwrap_or("".to_string());
+                    stdout().flush().unwrap_or_else(|err| sjoin.send(From::from(err)));
+                }
+            }
+            Command::QUIT(ref _quitmessage) => sjoin.send(Action::Quit),
+            Command::Response(ref response, ref command, ref err) => {
+                // Handle un-joinable channels
+                let the_problem = command.get(1).map_or("", |s| &*s);
+                let errmsg = the_problem.to_string() + ": " +
+                                &err.clone().unwrap_or("".to_string());
 
-                        match *response {
-                            Response::ERR_CHANNELISFULL => sjoin.send(Action::JoinFail(errmsg)),
-                            Response::ERR_INVITEONLYCHAN => sjoin.send(Action::JoinFail(errmsg)),
-                            Response::ERR_BANNEDFROMCHAN => sjoin.send(Action::JoinFail(errmsg)),
-                            Response::ERR_BADCHANNELKEY => sjoin.send(Action::JoinFail(errmsg)),
-                            Response::ERR_NOSUCHCHANNEL => sjoin.send(Action::JoinFail(errmsg)),
+                match *response {
+                    Response::ERR_CHANNELISFULL => sjoin.send(Action::JoinFail(errmsg)),
+                    Response::ERR_INVITEONLYCHAN => sjoin.send(Action::JoinFail(errmsg)),
+                    Response::ERR_BANNEDFROMCHAN => sjoin.send(Action::JoinFail(errmsg)),
+                    Response::ERR_BADCHANNELKEY => sjoin.send(Action::JoinFail(errmsg)),
+                    Response::ERR_NOSUCHCHANNEL => sjoin.send(Action::JoinFail(errmsg)),
 
-                            Response::RPL_ENDOFMOTD => sjoin.send(Action::Connect),
-                            Response::ERR_NOMOTD => sjoin.send(Action::Connect),
-                            _ => (),
-                        }
-                    }
+                    Response::RPL_ENDOFMOTD => sjoin.send(Action::Connect),
+                    Response::ERR_NOMOTD => sjoin.send(Action::Connect),
                     _ => (),
                 }
             }
+            _ => (),
         }
     });
     if let Err(err) = res {
