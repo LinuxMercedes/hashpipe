@@ -100,7 +100,7 @@ fn main() {
     // Filter empty strings from channel names
     let sanitized_chans: Vec<String> = matches.value_of("channels")
         .map(|chans| {
-            chans.split(",")
+            chans.split(',')
                 .filter(|x| *x != "")
                 .map(|x| x.to_string())
                 .collect()
@@ -130,13 +130,13 @@ fn main() {
     let cfg = Config {
         nickname: Some(nick),
         server: Some(server),
-        port: port,
+        port,
         use_ssl: Some(ssl),
         channels: Some(channels.clone()),
         ..Default::default()
     };
 
-    let server = match IrcClient::from_config(cfg) {
+    let client = match IrcClient::from_config(cfg) {
         Ok(val) => val,
         Err(e) => {
             error!("{}", e);
@@ -145,11 +145,11 @@ fn main() {
     };
 
     // Connect to IRC on its own thread
-    let irc_server = server.clone();
+    let irc_client = client.clone();
     let (sirc, rirc) = chan::sync(0);
 
     debug!("Spawning IRC client...");
-    spawn(move || run_irc(irc_server, raw_out, quiet, sirc));
+    spawn(move || run_irc(irc_client, raw_out, quiet, sirc));
 
     // Wait until we've joined all the channels we need to
     let mut join_count = 0;
@@ -159,7 +159,7 @@ fn main() {
         chan_select! {
             signal.recv() -> signal => {
                 debug!("Received signal {:?}; quitting", signal);
-                server.send_quit("#|").unwrap();
+                client.send_quit("#|").unwrap();
                 return;
             },
             rirc.recv() -> action => match action {
@@ -170,7 +170,7 @@ fn main() {
                 Some(Action::Join) => join_count += 1,
                 Some(Action::Quit) => {
                     debug!("QUIT received while attempting to join channels");
-                    server.send_quit("#|").unwrap();
+                    client.send_quit("#|").unwrap();
                     return;
                 },
                 Some(Action::JoinFail(err)) => {
@@ -179,7 +179,7 @@ fn main() {
                 },
                 Some(Action::IoError(err)) => {
                     error!("{}", err);
-                    server.send_quit("#|").unwrap();
+                    client.send_quit("#|").unwrap();
                     return;
                 },
                 _ => ()
@@ -190,11 +190,11 @@ fn main() {
     info!("Joined {} channels", join_count);
 
     // Open stdin and write it to the desired channels
-    let io_server = server.clone();
+    let io_client = client.clone();
     let (sio, rio) = chan::sync(0);
 
     debug!("Spawning stdin reader...");
-    spawn(move || run_io(io_server, channels, raw_in, sio));
+    spawn(move || run_io(io_client, channels, raw_in, sio));
 
     loop {
         chan_select! {
@@ -230,14 +230,14 @@ fn main() {
     }
 
     info!("Quitting!");
-    server.send_quit("#|").unwrap();
+    client.send_quit("#|").unwrap();
 }
 
 /// Manage IRC connection; read and print messages; signal on JOIN or QUIT
-fn run_irc(server: IrcClient, raw: bool, quiet: bool, sjoin: chan::Sender<Action>) {
-    server.identify().unwrap_or_else(|err| sjoin.send(From::from(err)));
+fn run_irc(client: IrcClient, raw: bool, quiet: bool, sjoin: chan::Sender<Action>) {
+    client.identify().unwrap_or_else(|err| sjoin.send(From::from(err)));
 
-    let res = server.for_each_incoming(|msg| {
+    let res = client.for_each_incoming(|msg| {
         if raw {
             print!("{}", msg);
             stdout().flush().unwrap_or_else(|err| sjoin.send(From::from(err)));
@@ -292,7 +292,7 @@ fn run_irc(server: IrcClient, raw: bool, quiet: bool, sjoin: chan::Sender<Action
 }
 
 /// Read stdin and write each line to channels/the server
-fn run_io(server: IrcClient, channels: Vec<String>, raw: bool, sdone: chan::Sender<Action>) {
+fn run_io(client: IrcClient, channels: Vec<String>, raw: bool, sdone: chan::Sender<Action>) {
     let stdin = BufReader::new(std::io::stdin());
     for line in stdin.lines() {
         match line {
@@ -301,13 +301,13 @@ fn run_io(server: IrcClient, channels: Vec<String>, raw: bool, sdone: chan::Send
                     let raw_line = ln + "\r\n"; // IRC line terminator
                     match Message::from_str(&raw_line) {
                         Ok(msg) => {
-                            server.send(msg).unwrap_or_else(|err| sdone.send(From::from(err)))
+                            client.send(msg).unwrap_or_else(|err| sdone.send(From::from(err)))
                         }
                         Err(err) => sdone.send(From::from(err)),
                     }
                 } else {
                     for channel in &channels {
-                        server.send_privmsg(&channel, &ln)
+                        client.send_privmsg(&channel, &ln)
                             .unwrap_or_else(|err| sdone.send(From::from(err)));
                     }
                 }
